@@ -1,0 +1,98 @@
+##
+## Dynamic DNS updater script for DigitalOcean DNS Server
+## https://github.com/menczeln/Mikrotik/tree/master/ddns-digitalocean
+##
+## JParseFunctions script is used to parse JSON data.
+## Please install it from:
+##   https://github.com/Winand/mikrotik-json-parser
+##
+## Copyright (C) 2019 Norbert Menczel
+## Released under the MIT license
+## https://github.com/menczeln/Mikrotik/blob/master/LICENSE
+##
+
+############################################
+#### VARIABLES, PLEASE SET AS YOUR NEED ####
+############################################
+
+## The SUBDOMAIN to update. Must be an A record in your DO hosted domain zone.
+:local subDomainName "home"
+
+## The domain hosted by your DO account
+:local domainName "example.com"
+
+## Authentication token for you DO account
+:local token "1234567890abcdefghijklmnopqrstuvwzxy1234567890ABCDEFGHIJKLMNOPQR"
+
+## WAN interface (pppoe, dhcp or any other with public IP)
+:local wanInterface "pppoe-wan"
+
+###################################################
+### THE MAIN SCRIPT. DO NOT MODIFY THIS PART!!! ###
+###################################################
+
+## Function to get your Public IP
+:local getWanIp do={
+  :local wanip [/ip address get [/ip address find interface=$wanif] address]
+  :if ([:type $wanip]=nil) do={
+    :log error ("[Digital Ocean DNS] Error get IP from WAN Interface: ".$wanif)
+    :error ("[Digital Ocean DNS] Error get IP from WAN Interface: ".$wanif)
+  }
+  :for i from=([:len $wanip]-1) to 0 do={
+    :if ([:pick $wanip $i]="/") do={
+      :set wanip [:pick $wanip 0 $i]
+    }
+  }
+  return $wanip
+}
+
+## Function to get ID of your DNS entry
+:local getRecordId do={
+  /system script run "JParseFunctions" 
+  :global JSONLoads
+  :global JSONUnload
+  :local rid
+  :local result [/tool fetch http-method=get http-header-field="Content-Type: application/json,Authorization: Bearer $t" "https://api.digitalocean.com/v2/domains/$dn/records" output=user as-value]
+  :if ($result->"status"="finished") do={
+    /system script run "JParseFunctions"
+    foreach record in=([$JSONLoads ($result->"data")]->"domain_records") do={
+      if ($record->"name" = $rn) do={
+        $JSONUnload
+        return ($record->"id")
+      }
+    }
+    $JSONUnload
+  }
+  return $rid
+}
+
+## Function to update your DNS entry
+:local updateDns do={
+  :local result [/tool fetch http-method=put http-header-field="Content-Type: application/json,Authorization: Bearer $t" http-data="{\"data\":\"$ip\"}" "https://api.digitalocean.com/v2/domains/$d/records/$rid" output=user as-value]
+  :if ($result->"status"="finished") do={
+    return true
+  }
+  return false
+}
+
+## Main
+:local currentIp [:resolve ($subDomainName.".".$domainName)]
+:local newIp [$getWanIp wanif=$wanInterface]
+
+if ($currentIp=$newIp) do={
+  return ""
+}
+
+:local recordId [$getRecordId t=($token) dn=($domainName) rn=($subDomainName)]
+
+:if ([:len $recordId]=0) do={
+  :log error ("[Digital Ocean DNS] Error get RecordID for ".($subDomainName.".".$domainName))
+  :error ("[Digital Ocean DNS] Error get RecordID for ".($subDomainName.".".$domainName))
+}
+
+:if (![$updateDns t=($token) d=($domainName) rid=($recordId) ip=($newIp)]) do={
+  :log error ("[Digital Ocean DNS] Error updating for ".($subDomainName.".".$domainName)." -> $newIp")
+  :error ("[Digital Ocean DNS] Error updating for ".($subDomainName.".".$domainName)." -> $newIp")
+}
+
+:log info ("[Digital Ocean DNS] Update success for ".($subDomainName.".".$domainName)." -> $newIp")
