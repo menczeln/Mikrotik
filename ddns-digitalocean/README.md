@@ -1,6 +1,6 @@
 # ddns-digitalocean - Digital Ocean DNS updater script
 
-This script update the given A record of your Domain hosted by Digital Ocean if the public IP was changed. 
+This script updates the A record of your domain hosted by Digital Ocean if the public IP has changed. 
 
 Parameters:  
   - **subDomain:** The Name of A record in your DNS zone to update (must be already exist) 
